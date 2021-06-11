@@ -13,14 +13,7 @@ from os import sys
 import os
 
 
-# solver = KrylovSolver('bicgstab','jacobi')
-# solver.parameters['report'] = True
-# solver.parameters['monitor_convergence'] = False
-# solver.parameters['relative_tolerance'] = 1.0e-7
-# #solver.parameters['absolute_tolerance'] = 1.0e-9
-#
-
-#Solvercd
+#Solver
 MAX_ITERS = 10000
 solver = PETScKrylovSolver('gmres','none')
 solver.ksp().setGMRESRestart(MAX_ITERS)
@@ -32,9 +25,20 @@ solver.parameters['maximum_iterations'] = MAX_ITERS
 #Pi to high accuracy
 Pi = np.pi
 
-#DOF/timestep size
+#DOF/Mesh input
 N =45
+meshrefine = 1 # 0,1, or 2: how many times boundary is refined
+refine1 = .03 #distance from wall refined first time
+refine2 = .03 #distance from wall refined second time
+#Timestep
 dt = .01
+
+#Initial, final time, total number of steps
+t_init = 0.0
+t_final = 50
+t_num = int((t_final - t_init)/dt)
+t = t_init
+
 #Viscosity
 nu = .0015
 
@@ -51,7 +55,7 @@ l_choice = 4
 
 
 #Final angular velocity of inner and outer cylinders
-omega_inner = 4  #Michal McLaughlin suggested increasing Re
+omega_inner = 4 
 omega_outer =0
 omega_diff = abs(omega_inner-omega_outer)
 
@@ -60,11 +64,15 @@ x = 5
 #Turn k equation on when cylinder is at full speed
 k_on = int(x/dt)
 
-#Initial, final time, timestep
-t_init = 0.0
-t_final = 50
-t_num = int((t_final - t_init)/dt)
-t = t_init
+
+#Paraview Setup
+savespersec = 20. #How many snapshots are taken per second
+velocity_paraview_file = File(keyword+"/vfolder/3d_TC_"+str(N)+"_"+str(dt)+"_"+str(omega_diff)+".pvd")
+snapspersec = int(1./dt) #timesteps per second
+frameRate = int(snapspersec/savespersec) # how often snapshots are saved to paraview
+if frameRate ==0:
+    frameRate =1
+
 
 #Define Domain
 outer_top_radius =1
@@ -90,16 +98,11 @@ t_iz = 2.2
 
 domain = Cylinder(Point(b_ox, b_oy, b_oz), Point(t_ox, t_oy, t_oz), outer_top_radius, outer_bot_radius) - Cylinder(Point(b_ix, b_iy, b_iz), Point(t_ix, t_iy, t_iz), inner_top_radius, inner_bot_radius)
 
-#Construct Mesh
-meshrefine = 1 #f 0,1, or 2: how many times boundary is refined
-refine1 = .03 #distance from wall refined first time
-refine2 = .03 #distance from wall refined second time
 
-
-
-#Generate mesh for given cylinders
+#Generate mesh 
 mesh = generate_mesh ( domain, N )
 
+#Refine mesh
 if (meshrefine > .5): #mesh refine greater than zero: refine once
     sub_domains_bool = MeshFunction("bool",mesh,mesh.topology().dim() - 1)
     sub_domains_bool.set_all(False)
@@ -112,7 +115,7 @@ if (meshrefine > .5): #mesh refine greater than zero: refine once
     interest = SmallInterest()
     interest.mark(sub_domains_bool,True)
     mesh = refine(mesh,sub_domains_bool)
-    print("mesh refined")
+
 
     if (meshrefine > 1.5): #Greater than 2, refine a second time
         class BigInterest(SubDomain):
@@ -124,14 +127,14 @@ if (meshrefine > .5): #mesh refine greater than zero: refine once
         interest = BigInterest()
         interest.mark(sub_domains_bool2,True)
         mesh = refine(mesh,sub_domains_bool2)
-        print("mesh refined again")
+
 
 
 hmax = mesh.hmax()
 hmin = mesh.hmin()
 
 #Reynolds/Taylor number information
-height = t_iz - b_iz #hieght of the cylinder
+height = t_iz - b_iz #height of the cylinder
 radius_ratio = inner_bot_radius/outer_bot_radius #eta
 L =  outer_bot_radius - inner_bot_radius
 aspect_ratio =  height/L
@@ -142,46 +145,6 @@ Ta =  Re*Re*4*(1-radius_ratio)/(1+radius_ratio)
 
 
 
-#Print statements to ensure running correct version
-if l_choice ==1 or l_choice == 2 or l_choice == 3:
-    keyword = "N_" + str(N) + "_omega_" + str(omega_diff) + "_nu_"+str(nu)+ "_l_choice_"+str(l_choice)+"_tau_"+str(tau)
-
-if l_choice ==0 or l_choice == 4:
-    keyword = "N_" + str(N) + "_omega_" + str(omega_diff) + "_nu_"+str(nu)+  "_l_choice_"+str(l_choice)
-
-
-#Print statements to see what is running
-print("N equals " + str(N))
-print("dt equals " + str(dt))
-print("nu equals " + str(nu))
-print("hmax equals " + str(hmax))
-print("hmin equals " + str(hmin))
-print("l choice is " + str(l_choice))
-print("omega (outer) equals " + str(omega_outer))
-print("omega (inner) equals " + str(omega_inner))
-
-#Print the total number of degrees of freedom
-X_test = VectorFunctionSpace(mesh,"CG",2)
-Q_test = FunctionSpace(mesh,"CG",1)
-vdof = X_test.dim()
-pdof = Q_test.dim()
-print("The number of velocity DOFs is:" + str(vdof))
-print("The number of pressure DOFs is:" + str(pdof))
-
-print("The Reynolds number is " + str(Re))
-print("The Taylor number is " + str(Ta))
-
-
-#Paraview Setup
-savespersec = 20. #How many snapshots are taken per second
-velocity_paraview_file = File(keyword+"/vfolder/3d_TC_"+str(N)+"_"+str(dt)+"_"+str(omega_diff)+".pvd")
-snapspersec = int(1./dt) #timesteps per second
-frameRate = int(snapspersec/savespersec) # how often snapshots are saved to paraview
-if frameRate ==0:
-    frameRate =1
-
-savefile =5. #Save output every 5 seconds
-saveRate = int(savefile/dt+.00001)
 
 #Boundary Conditions: Setup and Definition
 # Sub domain for Periodic boundary condition
@@ -291,7 +254,7 @@ bcs_k = [bc_inner_k,bc_outer_k]
 
 
 
-#Assign initial conditions (Start from rest)
+#Assign initial conditions for u equation (Start from rest)
 unMinus1.assign(Constant((0.0,0.0,0.0)))
 un.assign(Constant((0.0,0.0,0.0)))
 
@@ -310,35 +273,11 @@ def c(p,v):
 	return inner(p,div(v))
 
 #Wall normal distance
-d = Expression('-abs(pow(x[0]*x[0] + x[1]*x[1],.5)-(r_out+r_in)/2)+(r_out-r_in)/2',r_in = inner_top_radius, r_out = outer_top_radius,  degree=2) #wall distance formula
+d = Expression('-abs(pow(x[0]*x[0] + x[1]*x[1],.5)-(r_out+r_in)/2)+(r_out-r_in)/2',r_in = inner_top_radius, r_out = outer_top_radius,  degree=2) 
 
-#u euqation/kequation options:
+#u euqation for NSE:
 u_lhs0 = (1./dt)*inner(u,v)*dx + b(un,u,v)*dx  + 2.*nu*a_sym(u,v)*dx - c(p,v)*dx + c(q,u)*dx #Use this before we start the k equation
 u_rhs = (1./dt)*(inner(un,v))*dx
-# if l_choice == 0: #no k equation
-#     u_lhs = (1./dt)*inner(u,v)*dx + b(un,u,v)*dx  + 2.*nu*a_sym(u,v)*dx - c(p,v)*dx + c(q,u)*dx+eps*p*q*dx
-#     u_rhs = (1./dt)*(inner(un,v))*dx
-#     #These aren't actually used but I haven't taken them out yet
-#     k_lhs = (1./dt)*inner(k,phi)*dx
-#     k_rhs = (1./dt)*inner(kn,phi)*dx
-# if l_choice == 1: #'standard' k equation: l = sqrt(2k)tau, small penalty term
-#
-#     u_lhs = (1./dt)*inner(u,v)*dx + b(un,u,v)*dx  + 2.*nu*a_sym(u,v)*dx - c(p,v)*dx + c(q,u)*dx+ np.sqrt(2.)*mu*tau*kn*a_sym(u,v)*dx+eps*p*q*dx
-#     u_rhs = (1./dt)*(inner(un,v))*dx
-#
-#     k_lhs = (1./dt)*inner(k,phi)*dx + b(unPlus1,k,phi)*dx + (1./(np.sqrt(2.0)*tau))*inner(k,phi)*dx+ (nu+np.sqrt(2.)*mu*kn*tau)*a(k,phi)*dx
-#     k_rhs = (1./dt)*inner(kn,phi)*dx  + np.sqrt(2.0)*mu*tau*kn*a_sym(unPlus1,unPlus1)*phi*dx #Last term here is the square of the symmetric gradient write function for this later
-#
-#
-# #This still needs debugging (and is wildly slow) but we need lchoice 1 working first
-# if l_choice ==2: # min of two options, small penalty
-#     u_lhs = (1./dt)*inner(u,v)*dx +eps*p*q*dx+ b(un,u,v)*dx  + 2.*nu*a_sym(u,v)*dx - c(p,v)*dx + c(q,u)*dx+ mu*(.5*(.41*d*sqrt(d/L) + sqrt(2.)*sqrt(.5*(abs(kn)+kn))*tau )-.5*sqrt((eps + sqrt(2.)*sqrt(.5*(abs(kn)+kn))*tau - .41*d*sqrt(d/L))**2))*sqrt(.5*(abs(kn)+kn))*a_sym(u,v)*dx #
-#     u_rhs = (1./dt)*(inner(un,v))*dx
-#
-#     k_lhs = (1./dt)*inner(k,phi)*dx + (nu+ mu*(.5*(.41*d*sqrt(d/L) + sqrt(2.)*sqrt(.5*(abs(kn)+kn))*tau )-.5*sqrt((eps + sqrt(2.)*sqrt(.5*(abs(kn)+kn))*tau - .41*d*sqrt(d/L))**2))*sqrt(.5*(abs(kn)+kn)))*a(k,phi)*dx + b(unPlus1,k,phi)*dx + .5*(1./(sqrt(2)*tau) + sqrt(L/d)*sqrt(.5*(abs(kn)+kn))/(.41*d)+ sqrt((1./(sqrt(2)*tau) - sqrt(.5*(abs(kn)+kn))*sqrt(L/d)/(.41*d))**2)      )*inner(k,phi)*dx
-#     k_rhs = (1./dt)*inner(kn,phi)*dx +  mu*(.5*(.41*d*sqrt(d/L) + sqrt(2.)*sqrt(.5*(abs(kn)+kn))*tau )-.5*sqrt((eps + sqrt(2.)*sqrt(.5*(abs(kn)+kn))*tau - .41*d*sqrt(d/L))**2))*sqrt(.5*(abs(kn)+kn))*inner(.5*(nabla_grad(unPlus1)+nabla_grad(unPlus1).T),.5*(nabla_grad(unPlus1)+nabla_grad(unPlus1).T))*phi*dx #Last term here is the square of the symmetric gradient write function for this later
-#
-
 
 
 Au = None
@@ -347,73 +286,17 @@ Bu = None
 Bk = None
 
 #Output to save
-ts = np.zeros(t_num)# time array
 edr = np.zeros(t_num) # energy dissipation rate at time t
 ke = np.zeros(t_num) # ke at t
 ks = np.zeros(t_num) # k at t
-nu_bar = np.zeros(t_num)# nu total at t
-
-
-##THINGS FOR CHECKING THE LAMINAR SOLUTION
-###Location variables, probably more than we need if we're honest but I'm not taking chances
-thetaPoints = 500 #number of points we take along varying theta (points along donut shaped cross sections)
-theta = np.zeros((thetaPoints))
-xy = np.zeros((2,thetaPoints))
-zpoints = 500 #number of points we take along z axis
-avg = np.zeros((zpoints)) #average at one timestep, we save the last timestep (as god willing we've got some sort of fully evolved flow)
-avgavg = np.zeros((zpoints)) #average over donut, over time, store here
-z = np.zeros((zpoints))
-averageCount = 0#keep track of how many things we've added to average
-
-for i in range(0,thetaPoints):
-    theta[i] = i*(2*Pi)/thetaPoints
-    xy[0,i] = .5*(outer_top_radius+inner_top_radius)*cos(theta[i])
-    xy[1,i] = .5*(outer_top_radius+inner_top_radius)*sin(theta[i])
-for i in range(0,zpoints):
-    z[i] = b_iz+t_iz*i/zpoints
 
 
 
-#If I knew how to do this any other way I would
-#Makes a file that tells me what I did so I can figure it out later
-picsavefile =File(keyword+"/picfolder/test.pvd")
-arrsavefile =File(keyword+"/arrfolder/test.pvd")
-
-text_file = open(keyword+"/arrfolder/Information of this Run.txt", "w")
-
-text_file.write("N equals " + str(N)+"\n")
-text_file.write("dt equals " + str(dt)+"\n")
-text_file.write("nu equals " + str(nu)+"\n")
-text_file.write("hmax equals " + str(hmax)+"\n")
-text_file.write("hmin equals " + str(hmin)+"\n")
-text_file.write("omega (outer) equals " + str(omega_outer)+"\n")
-text_file.write("omega (inner) equals " + str(omega_inner)+"\n")
-
-text_file.write("r (outer) equals " + str(outer_bot_radius)+"\n")
-text_file.write("r (inner) equals " + str(inner_bot_radius)+"\n")
-
-text_file.write("The number of velocity DOFs is:" + str(vdof)+"\n")
-text_file.write("The number of pressure DOFs is:" + str(pdof)+"\n")
-text_file.write("The mesh has been refined " + str(meshrefine)+" times\n")
-
-text_file.write("The Reynolds number is " + str(Re)+"\n")
-text_file.write("The Taylor number is " + str(Ta)+"\n")
-
-U = abs(omega_outer*outer_top_radius-omega_inner*inner_top_radius)
-
-text_file.write("U^3/l= " + str((U*U*U/L))+"\n")
-
-
-text_file.close()
-
-
-
-count =1 #for test ramping up tau
 for jj in range(0,t_num):
     t = t + dt
     print('Numerical Time Level: t = '+ str(t))
-    if jj <= k_on: #Before cylinder is up to speed, NSE
-        nu_t = 0 #Need this for eps in definiton of energy dissipation rate
+    if jj <= k_on: #Before cylinder is up to speed, only NSE
+        nu_t = 0 
         #Matrix Assembly for the u equation
         Au = assemble(u_lhs0)
         Bu = assemble(u_rhs)
@@ -432,51 +315,32 @@ for jj in range(0,t_num):
         unMinus1.assign(un)
         un.assign(unPlus1)
 
-        if jj == k_on: #Initialize k equation when up to speed
-            I = .16*(pow(Re,-(1/8))) #Missing a factor of .16 as we were testing a bigger IC
+        if jj == k_on: #Initialize k equation 
+            I = .16*(pow(Re,-(1/8))) 
             kn.assign(1.5*I*I*project(inner(unPlus1,unPlus1)))
-            # knMinus1.assign(kn) #For the time filter?
 
     else: #NSE + k equation
-
-        if l_choice == 0: #no k equation
-
+        if l_choice == 0: #no k equation, continue with NSE
             u_lhs = (1./dt)*inner(u,v)*dx + b(un,u,v)*dx  + 2.*nu*a_sym(u,v)*dx - c(p,v)*dx + c(q,u)*dx+eps*p*q*dx
             u_rhs = (1./dt)*(inner(un,v))*dx
 
-        if l_choice == 1: #'standard' k equation: l = sqrt(2k)tau, small penalty term
-            sqrtk = sqrt(.5*(kn+abs(kn))) #1/2(k+abs(k)*2)
-            l_func = sqrt(2)*sqrtk*tau
-            nu_t = mu*sqrtk*l_func
-
-            u_lhs = (1./dt)*inner(u,v)*dx +eps*p*q*dx+ b(un,u,v)*dx  + 2.*nu*a_sym(u,v)*dx - c(p,v)*dx + c(q,u)*dx+ nu_t*a_sym(u,v)*dx #
-            u_rhs = (1./dt)*(inner(un,v))*dx
-
-
-        if l_choice ==2: # min of two options, small penalty
-            sqrtk = sqrt(.5*(kn+abs(kn))) #1/2(k+abs(k)*2)
+        if l_choice ==2: 
+            sqrtk = sqrt(.5*(kn+abs(kn))) #square root of positive part of k
             d_func = .41*d*sqrt(d/L)
-            l_func = .5*(d_func+sqrtk*sqrt(2)*tau-abs(d_func-sqrt(2)*sqrtk*tau))
+            l_func = .5*(d_func+sqrtk*sqrt(2)*tau-abs(d_func-sqrt(2)*sqrtk*tau)) # min approximated with (x+y-|x-y|)/2
             nu_t = mu*sqrtk*l_func
 
             u_lhs = (1./dt)*inner(u,v)*dx +eps*p*q*dx+ b(un,u,v)*dx  + 2.*nu*a_sym(u,v)*dx - c(p,v)*dx + c(q,u)*dx+ nu_t*a_sym(u,v)*dx #
             u_rhs = (1./dt)*(inner(un,v))*dx
-        if l_choice == 3: #'standard' k equation: l = sqrt(2k)tau, small penalty term
-            sqrtk = sqrt(.5*(kn+abs(kn))) #1/2(k+abs(k)*2)
-            l_func = sqrt(2)*sqrtk*tau
-            nu_t = mu*sqrtk*l_func
 
-            u_lhs = (1./dt)*inner(u,v)*dx +eps*p*q*dx+ b(un,u,v)*dx  + 2.*nu*a_sym(u,v)*dx - c(p,v)*dx + c(q,u)*dx+ nu_t*a_sym(u,v)*dx #
-            u_rhs = (1./dt)*(inner(un,v))*dx
-        if l_choice == 4: #'standard' k equation: l = sqrt(2k)tau, small penalty term
-            sqrtk = sqrt(.5*(kn+abs(kn))) #1/2(k+abs(k)*2)
+        if l_choice == 4:
+            sqrtk = sqrt(.5*(kn+abs(kn))) #square root of positive part of k
             l_func = .41*d
             nu_t = mu*sqrtk*l_func
 
             u_lhs = (1./dt)*inner(u,v)*dx +eps*p*q*dx+ b(un,u,v)*dx  + 2.*nu*a_sym(u,v)*dx - c(p,v)*dx + c(q,u)*dx+ nu_t*a_sym(u,v)*dx #
             u_rhs = (1./dt)*(inner(un,v))*dx
-
-
+            
         #Matrix Assembly for the u equation
         Au = assemble(u_lhs)
         Bu = assemble(u_rhs)
@@ -499,48 +363,21 @@ for jj in range(0,t_num):
         #Matrix Assembly for the k equation
         u_Sym = a_sym(unPlus1,unPlus1)
 
-        if l_choice == 0: #'standard' k equation: l = sqrt(2k)tau
-            # sqrtk = sqrt(.5*(kn+abs(kn))) #1/2(k+abs(k)*2)
-            # l_func = sqrt(2)*sqrtk*tau
-            # nu_t = mu*sqrtk*l_func
+        if l_choice == 0:
 
             k_lhs = (1./dt)*inner(k,phi)*dx
             k_rhs = (1./dt)*inner(kn,phi)*dx
 
-
-        if l_choice == 1: #'standard' k equation: l = sqrt(2k)tau
-            # sqrtk = sqrt(.5*(kn+abs(kn))) #1/2(k+abs(k)*2)
-            # l_func = sqrt(2)*sqrtk*tau
-            # nu_t = mu*sqrtk*l_func
-
-            k_lhs = (1./dt)*inner(k,phi)*dx + b(unPlus1,k,phi)*dx + (1./(np.sqrt(2.0)*tau))*inner(k,phi)*dx+ (nu+nu_t)*a(k,phi)*dx
-            k_rhs = (1./dt)*inner(kn,phi)*dx  + nu_t*inner(u_Sym,phi)*dx
-
-        if l_choice ==2: # min of two options
-            # sqrtk = sqrt(.5*(kn+abs(kn))) #1/2(k+abs(k)*2)
-            # d_func = .41*d*sqrt(d/L)
-            # l_func = .5*(d_func+sqrtk*sqrt(2)*tau-abs(d_func-sqrt(2)*sqrtk*tau))
-            # nu_t = mu*sqrtk*l_func
-
+        if l_choice ==2: 
             coef_l = .5*(1/(sqrt(2)*tau)+sqrtk/(.41*d*sqrt(d/L))+abs( 1/(sqrt(2)*tau)-sqrtk/(.41*d*sqrt(d/L)) ))
 
             k_lhs = (1./dt)*inner(k,phi)*dx + (nu+ nu_t)*a(k,phi)*dx + b(unPlus1,k,phi)*dx + coef_l*inner(k,phi)*dx
             k_rhs = (1./dt)*inner(kn,phi)*dx + nu_t*inner(u_Sym,phi)*dx
 
-        if l_choice == 3: #'standard' k equation: l = sqrt(2k)tau NO VISC
-            # sqrtk = sqrt(.5*(kn+abs(kn))) #1/2(k+abs(k)*2)
-            # l_func = sqrt(2)*sqrtk*tau
-            # nu_t = mu*sqrtk*l_func
 
-            k_lhs = (1./dt)*inner(k,phi)*dx + b(unPlus1,k,phi)*dx + (1./(np.sqrt(2.0)*tau))*inner(k,phi)*dx+ (nu_t)*a(k,phi)*dx
-            k_rhs = (1./dt)*inner(kn,phi)*dx  + nu_t*inner(u_Sym,phi)*dx
-
-        if l_choice == 4: #l = .41 d
-
+        if l_choice == 4: 
             k_lhs = (1./dt)*inner(k,phi)*dx + b(unPlus1,k,phi)*dx + (sqrtk/l_func)*inner(k,phi)*dx+ (nu_t)*a(k,phi)*dx
             k_rhs = (1./dt)*inner(kn,phi)*dx  + nu_t*inner(u_Sym,phi)*dx
-
-
 
 
         Ak = assemble(k_lhs)
@@ -549,30 +386,14 @@ for jj in range(0,t_num):
         [bc.apply(Ak,Bk) for bc in bcs_k]
         #Solve
         solve(Ak,k_.vector(),Bk)
-
-        if(TFK == 1): #I have no clue why these aren't all the same size
-            k_.vector()[:] = k_.vector()[:] -(1./3.)*(k_.vector()[:]-2*kn.vector()[:]+knMinus1.vector()[:])
-
-        knMinus1.assign(kn)
         kn.assign(k_)
 
 
 
     #Saving relevant terms
-    edr[jj] = assemble((nu+nu_t)*a(unPlus1,unPlus1)*dx) #FIX THIS LATER (Needs nu_t as well)
-    ts[jj] = t
+    edr[jj] = assemble((nu+nu_t)*a(unPlus1,unPlus1)*dx) 
     ke[jj] = assemble(inner(unPlus1,unPlus1)*dx)
     ks[jj] = assemble(kn*dx)
-    nu_bar[jj] = assemble((2*nu+nu_t)*dx(mesh))
-    if ks[jj]>5*ks[jj-1]:
-        print('yikes')
-        plt.figure(4)
-        plt.plot(ts,ks,"r", label=r"k over time",linewidth =.5 )
-        plt.xlabel("t")
-        plt.ylabel("k")
-
-        plt.savefig(keyword+"/picfolder/k over time")
-        plt.close()
 
 
     if(jj%frameRate == 0):
@@ -581,190 +402,9 @@ for jj in range(0,t_num):
         print(assemble(nu_t*dx(mesh))/domain_volume)
         print(assemble(nu*dx(mesh))/domain_volume)
 
-    #####Every 5 seconds save where we're at so I don't completely lose everything if this crashes
-    if (jj % saveRate == 0):
-
-        filename_init_v = keyword+'/arrfolder/velocity_init1.txt'
-        filename_init_p =  keyword+'/arrfolder/pressure_init1.txt'
-        u_init_hold = unPlus1.vector().get_local()
-        p_init_hold = pnPlus1.vector().get_local()
-        np.savetxt(filename_init_v,u_init_hold)
-        np.savetxt(filename_init_p,p_init_hold)
-        np.savetxt(keyword+'/arrfolder/time.txt"',ts)
-        np.savetxt(keyword+ '/arrfolder/eps.txt',edr)
-        np.savetxt(keyword+ '/arrfolder/ke.txt',ke)
-        np.savetxt(keyword+ '/arrfolder/ks.txt',ks)
-        np.savetxt(keyword+ '/arrfolder/nu_bar.txt',nu_bar)
-
-        plt.figure(1)
-        plt.plot(ts,edr,"r", label=r"energy dissipation over time",linewidth =.5 )
-        plt.xlabel("t")
-        plt.ylabel("eps")
-
-        plt.savefig(keyword+"/picfolder/eps over time")
-        plt.close()
-
-        plt.figure(2)
-        plt.plot(z,avg,"r", label=r"Average v at end",linewidth =.5 )
-        plt.xlabel("z")
-        plt.ylabel("avg v")
-
-        plt.savefig(keyword+"/picfolder/Avg_v_end")
-        plt.close()
 
 
-        plt.figure(3)
-        plt.plot(ts,ke,"r", label=r"KE over time",linewidth =.5 )
-        plt.xlabel("t")
-        plt.ylabel("ke")
-
-        plt.savefig(keyword+"/picfolder/KE over time")
-        plt.close()
-
-
-        plt.figure(4)
-        plt.plot(ts,ks,"r", label=r"k over time",linewidth =.5 )
-        plt.xlabel("t")
-        plt.ylabel("k")
-
-        plt.savefig(keyword+"/picfolder/k over time")
-        plt.close()
-
-    if (jj % saveRate == 1): #Second initial condition so we can do time filter easily
-        filename_init_v = keyword+'/arrfolder/velocity_init2.txt'
-        filename_init_p =  keyword+'/arrfolder/pressure_init2.txt'
-        u_init_hold = unPlus1.vector().get_local()
-        p_init_hold = pnPlus1.vector().get_local()
-        np.savetxt(filename_init_v,u_init_hold)
-        np.savetxt(filename_init_p,p_init_hold)
-
-    #### This tests vs analytic solution
-    #     thetaPoints = 2 #number of points we take along varying theta
-    #     zpoints = 2 #number of points we take along z axis
-    #     rpoints = 100 #points going out radially
-    #
-    #     r = np.zeros((rpoints))
-    #     theta = np.zeros((thetaPoints))
-    #     z = np.zeros((zpoints))
-    #
-    #
-    #     for i in range(0,thetaPoints):
-    #        theta[i] = i*(2*Pi)/thetaPoints
-    #     for i in range(0,zpoints):
-    #        z[i] = b_iz+t_iz*(i+1)/(zpoints+1)
-    #     for i in range(0,rpoints):
-    #        r[i] = inner_top_radius+(outer_top_radius-inner_top_radius)*(i+1)/(rpoints+2)
-    #     for i in range(0,thetaPoints):
-    #         for j in range(0,zpoints):
-    #            u_r_vals = np.zeros(rpoints)
-    #            u_th_vals = np.zeros(rpoints)
-    #            u_z_vals = np.zeros(rpoints)
-    #            u_x_vals = np.zeros(rpoints)
-    #            u_y_vals = np.zeros(rpoints)
-    #            p_vals = np.zeros(rpoints)
-    #            for k in range(0,rpoints):
-    #             # print("r "+str(r[k]))
-    #             # print("theta "+str(cos(theta[i])))
-    #             # print("x "+str(r[k]*cos(theta[i])))
-    #             # print("y "+str(r[k]*sin(theta[i])))
-    #             # print("z "+str(z[j]))
-    #             uvw = unPlus1(r[k]*cos(theta[i]), r[k]*sin(theta[i]),z[j])
-    #             u_x_vals[k] = uvw[0]
-    #             u_y_vals[k] = uvw[1]
-    #             u_r_vals[k] = uvw[0]*cos(theta[i])+uvw[1]*sin(theta[i])
-    #             u_th_vals[k]= uvw[1]*cos(theta[i])-uvw[0]*sin(theta[i])
-    #             u_z_vals[k]= uvw[2]
-    #             p_vals[k] = pnPlus1(r[k]*cos(theta[i]), r[k]*sin(theta[i]),z[j])
-    #
-    #             plt.figure(1)
-    #             plt.plot(r,u_r_vals,"b",r,u_th_vals,"k",r,u_z_vals,"r", label=r"velocity plots",linewidth =.5 )
-    #             plt.xlabel("r")
-    #             plt.ylabel("velocity_"+str(omega_diff))
-    #
-    #             plt.savefig("picfolder/N_" + str(N) +"_i_"+str(i)+"_j_"+str(j))
-    #             plt.close()
-    #
-    #             np.savetxt("arrfolder/N_" + str(N) + "omega"+str(omega_diff)+"_i_"+str(i)+"_j_"+str(j)+"pvals.txt", p_vals)
-    #             np.savetxt("arrfolder/N_" + str(N) + "omega"+str(omega_diff)+"_i_"+str(i)+"_j_"+str(j)+"Uth.txt", u_th_vals)
-    #             np.savetxt("arrfolder/N_" + str(N) + "omega"+str(omega_diff)+"_i_"+str(i)+"_j_"+str(j)+"Ur.txt", u_r_vals)
-    #             np.savetxt("arrfolder/N_" + str(N) + "omega"+str(omega_diff)+"_i_"+str(i)+"_j_"+str(j)+"Uz.txt", u_z_vals)
-    #             #
-
-
-
-np.savetxt(keyword+'/arrfolder/time.txt"',ts)
 np.savetxt(keyword+ '/arrfolder/eps.txt',edr)
 np.savetxt(keyword+ '/arrfolder/ke.txt',ke)
 np.savetxt(keyword+ '/arrfolder/ks.txt',ks)
-np.savetxt(keyword+ '/arrfolder/nu_bar.txt',nu_bar)
 
-#Also test vs known information
-# for j in range(0,zpoints):
-#     currentavg = 0
-#     for i in range(0,thetaPoints):
-#         u1 = unPlus1(xy[0,i],xy[1,i] ,z[j])[0] #velocity in x
-#         u2 = unPlus1(xy[0,i],xy[1,i] ,z[j])[1] #velocity in y
-#         v = u1*cos(theta[i])+u2*sin(theta[i])
-#         currentavg= currentavg + (1./thetaPoints)*v
-#     avg[j] = currentavg
-
-
-# np.savetxt(keyword+'/arrfolder/average_end_long.txt',avg)
-
-plt.figure(1)
-plt.plot(ts,edr,"r", label=r"energy dissipation over time",linewidth =.5 )
-plt.xlabel("t")
-plt.ylabel("eps")
-
-plt.savefig(keyword+"/picfolder/eps over time")
-plt.close()
-
-plt.figure(2)
-plt.plot(z,avg,"r", label=r"Average v at end",linewidth =.5 )
-plt.xlabel("z")
-plt.ylabel("avg v")
-
-plt.savefig(keyword+"/picfolder/Avg_v_end")
-plt.close()
-
-
-plt.figure(3)
-plt.plot(ts,ke,"r", label=r"KE over time",linewidth =.5 )
-plt.xlabel("t")
-plt.ylabel("ke")
-
-plt.savefig(keyword+"/picfolder/KE over time")
-plt.close()
-
-
-
-plt.figure(4)
-plt.plot(ts,ks,"r", label=r"k over time",linewidth =.5 )
-plt.xlabel("t")
-plt.ylabel("k")
-
-plt.savefig(keyword+"/picfolder/k over time")
-plt.close()
-
-
-
-
-
-
-
-
-#Print statements at end to reference what just ran
-print("N equals " + str(N))
-print("dt equals " + str(dt))
-print("nu equals " + str(nu))
-print("hmax equals " + str(hmax))
-print("hmin equals " + str(hmin))
-print("l choice is " + str(l_choice))
-print("omega (outer) equals " + str(omega_outer))
-print("omega (inner) equals " + str(omega_inner))
-
-print("The number of velocity DOFs is:" + str(vdof))
-print("The number of pressure DOFs is:" + str(pdof))
-
-print("The Reynolds number is " + str(Re))
-print("The Taylor number is " + str(Ta))
