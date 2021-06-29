@@ -67,7 +67,7 @@ k_on = int(x/dt)
 
 #Paraview Setup
 savespersec = 20. #How many snapshots are taken per second
-velocity_paraview_file = File(keyword+"/vfolder/3d_TC_"+str(N)+"_"+str(dt)+"_"+str(omega_diff)+".pvd")
+velocity_paraview_file = File("vfolder/3d_TC_"+str(N)+"_"+str(dt)+"_"+str(omega_diff)+".pvd")
 snapspersec = int(1./dt) #timesteps per second
 frameRate = int(snapspersec/savespersec) # how often snapshots are saved to paraview
 if frameRate ==0:
@@ -139,7 +139,6 @@ radius_ratio = inner_bot_radius/outer_bot_radius #eta
 L =  outer_bot_radius - inner_bot_radius
 aspect_ratio =  height/L
 domain_volume = assemble(1*dx(mesh))
-print(domain_volume)
 Re = abs(L*(omega_outer-omega_inner)/nu) #Reynold's number as defined in Bilson/Bremhorst
 Ta =  Re*Re*4*(1-radius_ratio)/(1+radius_ratio)
 
@@ -398,13 +397,11 @@ for jj in range(0,t_num):
 
     if(jj%frameRate == 0):
         velocity_paraview_file << (unPlus1,t)
-        print(ks[jj])
-        print(assemble(nu_t*dx(mesh))/domain_volume)
-        print(assemble(nu*dx(mesh))/domain_volume)
 
 
 
-np.savetxt(keyword+ '/arrfolder/eps.txt',edr)
-np.savetxt(keyword+ '/arrfolder/ke.txt',ke)
-np.savetxt(keyword+ '/arrfolder/ks.txt',ks)
+
+np.savetxt('eps.txt',edr)
+np.savetxt('ke.txt',ke)
+np.savetxt('ks.txt',ks)
 
